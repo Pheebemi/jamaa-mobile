@@ -3,6 +3,7 @@ import { useSyncStore } from '../sync/useSyncStore';
 import { runSync, runPull, getPendingCount } from '../sync/syncEngine';
 import { useNetworkStatus } from './useNetworkStatus';
 import { Toast } from '../components/Toast';
+import { expoDb } from '../db';
 
 export function useSync() {
   const { isSyncing, setSyncing, setLastResult, setPendingCount, setLastSyncAt } = useSyncStore();
@@ -15,19 +16,36 @@ export function useSync() {
       Toast.show({ type: 'error', text1: 'No internet', text2: 'Connect first.' });
       return;
     }
+
+    // Read pending cases HERE — same context as the badge count
+    const pendingCases = expoDb.getAllSync<any>(`SELECT * FROM cases WHERE sync_status = 'pending'`);
+    const pendingNotes = expoDb.getAllSync<any>(`SELECT * FROM case_notes WHERE sync_status = 'pending'`);
+
+    if (pendingCases.length === 0 && pendingNotes.length === 0) {
+      Toast.show({ type: 'info', text1: 'Nothing to upload', text2: 'No pending cases.' });
+      setPendingCount(0);
+      return;
+    }
+
     setSyncing(true);
     try {
-      const result = await runSync();
+      const result = await runSync(pendingCases, pendingNotes);
       setLastResult(result);
+
       const remaining = await getPendingCount();
       setPendingCount(remaining);
 
-      if (result.errors.length > 0) {
-        Toast.show({ type: 'error', text1: 'Upload failed', text2: result.errors[0] });
+      const realErrors = result.errors.filter(e => !e.startsWith('DEBUG'));
+      if (realErrors.length > 0) {
+        Toast.show({ type: 'error', text1: 'Upload error', text2: realErrors[0] });
       } else if (result.pushed === 0) {
-        Toast.show({ type: 'info', text1: 'Nothing to upload', text2: 'No pending cases.' });
+        Toast.show({ type: 'info', text1: 'Check server', text2: result.errors.join(' | ') });
       } else {
-        Toast.show({ type: 'success', text1: `↑ Uploaded ${result.pushed} case${result.pushed !== 1 ? 's' : ''}`, text2: 'Saved to server successfully.' });
+        Toast.show({
+          type: 'success',
+          text1: `↑ Uploaded ${result.pushed} case${result.pushed !== 1 ? 's' : ''}`,
+          text2: 'Saved to server successfully.',
+        });
       }
     } catch (err: any) {
       Toast.show({ type: 'error', text1: 'Upload failed', text2: err.message });

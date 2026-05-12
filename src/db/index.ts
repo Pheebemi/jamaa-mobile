@@ -6,6 +6,10 @@ import * as schema from './schema';
 
 export const expoDb = openDatabaseSync('jamaa.db');
 
+// Force DELETE journal mode — disables WAL so all connections see the same data
+expoDb.execSync(`PRAGMA journal_mode=DELETE`);
+expoDb.execSync(`PRAGMA synchronous=NORMAL`);
+
 export const db = drizzle(expoDb, { schema });
 
 export async function runMigrations() {

@@ -12,7 +12,10 @@ export type SyncResult = {
 };
 
 // Push pending local records to server and mark them synced immediately
-export async function runSync(): Promise<SyncResult> {
+export async function runSync(
+  injectedCases?: any[],
+  injectedNotes?: any[]
+): Promise<SyncResult> {
   const start = Date.now();
   const result: SyncResult = { pushed: 0, conflicts: 0, errors: [], duration_ms: 0 };
 
@@ -20,22 +23,54 @@ export async function runSync(): Promise<SyncResult> {
   if (!net.isConnected) throw new Error('No internet connection');
 
   try {
-    const pendingCases = expoDb.getAllSync<any>(`SELECT * FROM cases WHERE sync_status = 'pending'`);
-    const pendingNotes = expoDb.getAllSync<any>(`SELECT * FROM case_notes WHERE sync_status = 'pending'`);
+    expoDb.execSync(`PRAGMA wal_checkpoint(FULL)`);
+    const pendingCases = injectedCases ?? expoDb.getAllSync<any>(`SELECT * FROM cases WHERE sync_status = 'pending'`);
+    const pendingNotes = injectedNotes ?? expoDb.getAllSync<any>(`SELECT * FROM case_notes WHERE sync_status = 'pending'`);
+
+    result.errors.push(`DEBUG: injected=${!!injectedCases} found=${pendingCases.length} cases`);
 
     if (pendingCases.length === 0 && pendingNotes.length === 0) {
-      result.errors.push(`DEBUG: raw SQL found 0 pending cases`);
       result.duration_ms = Date.now() - start;
       return result;
     }
 
     const payload = {
       cases: pendingCases.map((c) => ({ local_id: c.id, server_id: c.server_id, updated_at: c.updated_at, data: c })),
-      notes: pendingNotes.map((n) => ({ local_id: n.id, server_id: n.server_id, updated_at: n.updated_at, data: n })),
+      notes: pendingNotes.map((n) => {
+        const parentCase = expoDb.getFirstSync<any>(
+          `SELECT server_id FROM cases WHERE id = ?`, [n.case_id]
+        );
+        return {
+          local_id: n.id,
+          server_id: n.server_id,
+          updated_at: n.updated_at,
+          data: { ...n, case_id: parentCase?.server_id ?? n.case_id },
+        };
+      }),
     };
 
-    const pushResponse = await apiClient.post('/sync/push/', payload);
-    const { created, updated, conflicts } = pushResponse.data;
+    let created: any[] = [], updated: any[] = [], conflicts: any[] = [];
+    try {
+      const pushResponse = await apiClient.post('/sync/push/', payload, { timeout: 15000 });
+      created = pushResponse.data.created ?? [];
+      updated = pushResponse.data.updated ?? [];
+      conflicts = pushResponse.data.conflicts ?? [];
+    } catch (pushErr: any) {
+      // Push timed out but case may have landed on server — pull to reconcile
+      result.errors.push(`Push timeout, reconciling via pull...`);
+      try {
+        const lastSync = (await SecureStore.getItemAsync('last_sync_at')) ?? '1970-01-01T00:00:00Z';
+        const pullResponse = await apiClient.get('/sync/pull/', { params: { last_sync: lastSync }, timeout: 20000 });
+        const serverCases: any[] = pullResponse.data.cases ?? [];
+        // Any pending case whose title matches a server case → mark synced
+        for (const c of pendingCases) {
+          const match = serverCases.find((sc: any) => sc.title === c.title && sc.description === c.description);
+          if (match) created.push({ local_id: c.id, server_id: match.id });
+        }
+      } catch {
+        throw pushErr;
+      }
+    }
     result.errors.push(`DEBUG: sent ${pendingCases.length} cases, server created=${created?.length ?? 0} updated=${updated?.length ?? 0}`);
 
     const serverIdMap: Record<string, string> = {};
@@ -45,10 +80,24 @@ export async function runSync(): Promise<SyncResult> {
 
     for (const c of pendingCases) {
       const serverId = serverIdMap[c.id] ?? c.server_id ?? '';
+
+      const before = expoDb.getFirstSync<any>(
+        `SELECT id, typeof(id) as id_type, sync_status FROM cases WHERE id = ?`, [c.id]
+      );
+      const journalMode = expoDb.getFirstSync<any>(`PRAGMA journal_mode`);
+
       const sid = serverId ? `'${serverId}'` : 'NULL';
-      expoDb.execSync(`UPDATE cases SET sync_status = 'synced', server_id = ${sid} WHERE id = '${c.id}'`);
-      const check = expoDb.getFirstSync<any>(`SELECT sync_status FROM cases WHERE id = '${c.id}'`);
-      result.errors.push(`DEBUG after update: case ${c.id.slice(0,8)} status=${check?.sync_status}`);
+      const updateResult = expoDb.runSync(
+        `UPDATE cases SET sync_status = 'synced', server_id = ${sid} WHERE id = ?`, [c.id]
+      );
+
+      const after = expoDb.getFirstSync<any>(
+        `SELECT sync_status FROM cases WHERE id = ?`, [c.id]
+      );
+
+      result.errors.push(
+        `pushed OK | journal=${journalMode?.journal_mode} | before=${before?.sync_status} | after=${after?.sync_status} | changes=${updateResult?.changes ?? 'N/A'}`
+      );
     }
     for (const n of pendingNotes) {
       const serverId = serverIdMap[n.id] ?? n.server_id ?? '';
@@ -63,7 +112,8 @@ export async function runSync(): Promise<SyncResult> {
     result.conflicts = conflicts?.length ?? 0;
 
   } catch (err: any) {
-    result.errors.push(err.message ?? 'Push failed');
+    const detail = err?.response?.data ? JSON.stringify(err.response.data).slice(0, 200) : err.message;
+    result.errors.push(detail ?? 'Push failed');
   }
 
   result.duration_ms = Date.now() - start;
@@ -91,7 +141,19 @@ export async function runPull(): Promise<void> {
     const existing = expoDb.getFirstSync<{ id: string }>(
       `SELECT id FROM cases WHERE server_id = ?`, [sc.id]
     );
-    if (!existing) {
+
+    // Match pending local case by created_at — fixes duplicate when push response was lost
+    const pendingMatch = !existing ? expoDb.getFirstSync<{ id: string }>(
+      `SELECT id FROM cases WHERE created_at = ? AND sync_status = 'pending' AND server_id IS NULL`,
+      [sc.created_at]
+    ) : null;
+
+    if (pendingMatch) {
+      expoDb.runSync(
+        `UPDATE cases SET server_id = ?, sync_status = 'synced', updated_at = ? WHERE id = ?`,
+        [sc.id, sc.updated_at, pendingMatch.id]
+      );
+    } else if (!existing) {
       expoDb.runSync(
         `INSERT OR IGNORE INTO cases
           (id, server_id, org_id, title, description, type, priority, status,
