@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "Jamaa",
+    "slug": "jamaa",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "jamaa",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.jamaa.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Jamaa uses your location to tag case reports with coordinates.",
+        "NSCameraUsageDescription": "Jamaa uses the camera to attach photos to case reports.",
+        "NSPhotoLibraryUsageDescription": "Jamaa accesses photos to attach images to case reports.",
+        "NSFaceIDUsageDescription": "Jamaa uses Face ID to protect access to sensitive case records."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#15803d"
+      },
+      "package": "com.jamaa.app",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-local-authentication",
+      [
+        "expo-notifications",
+        {
+          "color": "#15803d"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Jamaa uses your location to tag case reports."
+        }
+      ],
+      "expo-sqlite"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
