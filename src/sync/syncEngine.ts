@@ -44,24 +44,19 @@ export async function runSync(): Promise<SyncResult> {
     }
 
     for (const c of pendingCases) {
-      const serverId = serverIdMap[c.id] ?? c.server_id ?? null;
-      const updateResult = expoDb.runSync(
-        `UPDATE cases SET sync_status = 'synced', server_id = ? WHERE id = ?`,
-        [serverId, c.id]
-      );
-      if (__DEV__) {
-        console.log(`[SYNC] UPDATE case ${c.id} → server_id=${serverId} | rows changed: ${updateResult.changes}`);
-      }
+      const serverId = serverIdMap[c.id] ?? c.server_id ?? '';
+      const sid = serverId ? `'${serverId}'` : 'NULL';
+      expoDb.execSync(`UPDATE cases SET sync_status = 'synced', server_id = ${sid} WHERE id = '${c.id}'`);
+      const check = expoDb.getFirstSync<any>(`SELECT sync_status FROM cases WHERE id = '${c.id}'`);
+      result.errors.push(`DEBUG after update: case ${c.id.slice(0,8)} status=${check?.sync_status}`);
     }
     for (const n of pendingNotes) {
-      const serverId = serverIdMap[n.id] ?? n.server_id ?? null;
-      expoDb.runSync(
-        `UPDATE case_notes SET sync_status = 'synced', server_id = ? WHERE id = ?`,
-        [serverId, n.id]
-      );
+      const serverId = serverIdMap[n.id] ?? n.server_id ?? '';
+      const sid = serverId ? `'${serverId}'` : 'NULL';
+      expoDb.execSync(`UPDATE case_notes SET sync_status = 'synced', server_id = ${sid} WHERE id = '${n.id}'`);
     }
     for (const conflict of conflicts ?? []) {
-      expoDb.runSync(`UPDATE cases SET sync_status = 'conflict' WHERE id = ?`, [conflict.local_id]);
+      expoDb.execSync(`UPDATE cases SET sync_status = 'conflict' WHERE id = '${conflict.local_id}'`);
     }
 
     result.pushed = (created?.length ?? 0) + (updated?.length ?? 0);
@@ -90,7 +85,7 @@ export async function runPull(): Promise<void> {
 
   const lastSync = (await SecureStore.getItemAsync('last_sync_at')) ?? '1970-01-01T00:00:00Z';
   const pullResponse = await apiClient.get('/sync/pull/', { params: { last_sync: lastSync }, timeout: 20000 });
-  const { cases: serverCases, notes: serverNotes, server_time } = pullResponse.data;
+  const { cases: serverCases, notes: serverNotes, alerts: serverAlerts, server_time } = pullResponse.data;
 
   for (const sc of serverCases ?? []) {
     const existing = expoDb.getFirstSync<{ id: string }>(
@@ -143,6 +138,19 @@ export async function runPull(): Promise<void> {
       expoDb.runSync(
         `UPDATE case_notes SET body=?, updated_at=?, sync_status='synced' WHERE server_id=?`,
         [sn.body, sn.updated_at, sn.id]
+      );
+    }
+  }
+
+  for (const sa of serverAlerts ?? []) {
+    const existing = expoDb.getFirstSync<{ id: string }>(
+      `SELECT id FROM alerts WHERE server_id = ?`, [sa.id]
+    );
+    if (!existing) {
+      expoDb.runSync(
+        `INSERT OR IGNORE INTO alerts (id, server_id, type, message, sent_by, received_at, sync_status)
+         VALUES (?,?,?,?,?,?,?)`,
+        [randomUUID(), sa.id, sa.type, sa.message, sa.sent_by ?? null, sa.created_at ?? new Date().toISOString(), 'synced']
       );
     }
   }

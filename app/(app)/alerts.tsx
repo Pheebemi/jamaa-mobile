@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
-import { View, Text, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { expoDb } from '../../src/db';
+import { useSyncStore } from '../../src/sync/useSyncStore';
+import apiClient from '../../src/api/client';
+import { randomUUID } from 'expo-crypto';
+import NetInfo from '@react-native-community/netinfo';
 
 const ALERT_ICONS: Record<string, string> = {
   emergency: 'warning',
@@ -30,19 +34,48 @@ const ALERT_ICON_COLORS: Record<string, string> = {
 export default function AlertsScreen() {
   const [alertList, setAlertList] = useState<any[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const { lastSyncAt } = useSyncStore();
 
-  function load() {
+  function loadLocal() {
     try {
       const rows = expoDb.getAllSync<any>(`SELECT * FROM alerts ORDER BY received_at DESC`);
       setAlertList(rows);
     } catch {}
   }
 
-  useEffect(() => { load(); }, []);
+  async function fetchFromServer() {
+    const net = await NetInfo.fetch();
+    if (!net.isConnected || !net.isInternetReachable) return;
+    try {
+      const res = await apiClient.get('/alerts/', { timeout: 10000 });
+      const serverAlerts: any[] = res.data?.results ?? res.data ?? [];
+      for (const sa of serverAlerts) {
+        const existing = expoDb.getFirstSync<{ id: string }>(
+          `SELECT id FROM alerts WHERE server_id = ?`, [sa.id]
+        );
+        if (!existing) {
+          expoDb.runSync(
+            `INSERT OR IGNORE INTO alerts (id, server_id, type, message, sent_by, received_at, sync_status)
+             VALUES (?,?,?,?,?,?,?)`,
+            [randomUUID(), sa.id, sa.type, sa.message, sa.sent_by ?? null,
+             sa.created_at ?? new Date().toISOString(), 'synced']
+          );
+        }
+      }
+      loadLocal();
+    } catch {}
+  }
 
-  function onRefresh() {
+  useEffect(() => {
+    loadLocal();
+    fetchFromServer();
+  }, []);
+
+  useEffect(() => { loadLocal(); }, [lastSyncAt]);
+
+  async function onRefresh() {
     setRefreshing(true);
-    load();
+    await fetchFromServer();
     setRefreshing(false);
   }
 
@@ -54,34 +87,43 @@ export default function AlertsScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#15803d" />}
         contentContainerClassName="px-4 pt-4 pb-8"
         renderItem={({ item }) => (
-          <View className={`rounded-2xl border p-4 mb-3 ${ALERT_COLORS[item.type] ?? 'bg-gray-50 border-gray-200'}`}>
-            <View className="flex-row items-start gap-3">
-              <Ionicons
-                name={(ALERT_ICONS[item.type] ?? 'notifications') as any}
-                size={20}
-                color={ALERT_ICON_COLORS[item.type] ?? '#6b7280'}
-              />
+          <View className="bg-white rounded-3xl p-5 mb-4 shadow-sm">
+            <View className="flex-row items-start gap-4">
+              <View className={`w-11 h-11 rounded-2xl items-center justify-center ${
+                item.type === 'emergency'    ? 'bg-red-100' :
+                item.type === 'outbreak'     ? 'bg-purple-100' :
+                item.type === 'flood'        ? 'bg-blue-100' :
+                item.type === 'missing_child'? 'bg-orange-100' : 'bg-gray-100'
+              }`}>
+                <Ionicons
+                  name={(ALERT_ICONS[item.type] ?? 'notifications') as any}
+                  size={22}
+                  color={ALERT_ICON_COLORS[item.type] ?? '#6b7280'}
+                />
+              </View>
               <View className="flex-1">
-                <Text className="text-sm font-semibold text-gray-900 capitalize">
-                  {item.type.replace('_', ' ')}
-                </Text>
-                <Text className="text-sm text-gray-700 mt-1">{item.message}</Text>
-                <Text className="text-xs text-gray-400 mt-2">
-                  {new Date(item.received_at).toLocaleString('en-GB')}
+                <View className="flex-row items-center justify-between">
+                  <Text className="text-sm font-bold text-gray-900 capitalize">
+                    {item.type.replace('_', ' ')}
+                  </Text>
                   {!item.read_at && (
-                    <Text className="text-green-700 font-medium"> · New</Text>
+                    <View className="w-2 h-2 rounded-full bg-green-500" />
                   )}
+                </View>
+                <Text className="text-base text-gray-700 mt-1.5 leading-6">{item.message}</Text>
+                <Text className="text-xs text-gray-400 mt-3">
+                  {new Date(item.received_at).toLocaleString('en-GB')}
                 </Text>
               </View>
             </View>
           </View>
         )}
         ListEmptyComponent={
-          <View className="items-center justify-center py-20">
-            <Ionicons name="notifications-off-outline" size={48} color="#d1d5db" />
-            <Text className="text-gray-400 text-base font-medium mt-4">No alerts</Text>
-            <Text className="text-gray-300 text-sm mt-1 text-center px-8">
-              Emergency alerts and broadcasts will appear here.
+          <View className="items-center justify-center py-24">
+            <Ionicons name="notifications-off-outline" size={64} color="#d1d5db" />
+            <Text className="text-gray-400 text-xl font-semibold mt-5">No alerts</Text>
+            <Text className="text-gray-300 text-base mt-2 text-center px-8">
+              Emergency alerts and broadcasts from your organisation will appear here.
             </Text>
           </View>
         }

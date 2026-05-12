@@ -5,7 +5,7 @@ import { useNetworkStatus } from './useNetworkStatus';
 import { Toast } from '../components/Toast';
 
 export function useSync() {
-  const { isSyncing, setSyncing, setLastResult, setPendingCount } = useSyncStore();
+  const { isSyncing, setSyncing, setLastResult, setPendingCount, setLastSyncAt } = useSyncStore();
   const [isPulling, setIsPulling] = useState(false);
   const isOnline = useNetworkStatus();
 
@@ -45,6 +45,7 @@ export function useSync() {
     setIsPulling(true);
     try {
       await runPull();
+      setLastSyncAt(new Date().toISOString());
       Toast.show({ type: 'success', text1: '↓ Download complete', text2: 'Latest data pulled from server.' });
     } catch (err: any) {
       Toast.show({ type: 'error', text1: 'Download failed', text2: err.message });

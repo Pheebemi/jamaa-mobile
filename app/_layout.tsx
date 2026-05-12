@@ -1,13 +1,14 @@
 import '../global.css';
-import { useEffect } from 'react';
+import { useEffect, useCallback } from 'react';
 import { View, ActivityIndicator } from 'react-native';
-import { Slot, router } from 'expo-router';
+import { Slot, router, useRootNavigationState } from 'expo-router';
 import { useAuthStore } from '../src/stores/authStore';
 import { runMigrations } from '../src/db';
 import { ToastProvider } from '../src/components/Toast';
 
 export default function RootLayout() {
   const { initialize, isAuthenticated, isLoading } = useAuthStore();
+  const navigationState = useRootNavigationState();
 
   useEffect(() => {
     async function boot() {
@@ -18,14 +19,15 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (!isLoading) {
-      if (isAuthenticated) {
-        router.replace('/(app)');
-      } else {
-        router.replace('/(auth)/login');
-      }
+    if (!navigationState?.key) return;
+    if (isLoading) return;
+
+    if (isAuthenticated) {
+      router.replace('/(app)');
+    } else {
+      router.replace('/(auth)/login');
     }
-  }, [isLoading, isAuthenticated]);
+  }, [navigationState?.key, isLoading, isAuthenticated]);
 
   if (isLoading) {
     return (
