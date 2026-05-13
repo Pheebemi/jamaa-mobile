@@ -10,6 +10,10 @@ export const expoDb = openDatabaseSync('jamaa.db');
 expoDb.execSync(`PRAGMA journal_mode=DELETE`);
 expoDb.execSync(`PRAGMA synchronous=NORMAL`);
 
+// Add creator info columns if they don't exist yet
+try { expoDb.execSync(`ALTER TABLE cases ADD COLUMN created_by_name text`); } catch {}
+try { expoDb.execSync(`ALTER TABLE cases ADD COLUMN created_by_email text`); } catch {}
+
 export const db = drizzle(expoDb, { schema });
 
 export async function runMigrations() {

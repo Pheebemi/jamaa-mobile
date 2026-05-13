@@ -133,7 +133,11 @@ export async function runPull(): Promise<void> {
   const net = await NetInfo.fetch();
   if (!net.isConnected) return;
 
-  const lastSync = (await SecureStore.getItemAsync('last_sync_at')) ?? '1970-01-01T00:00:00Z';
+  const storedSync = await SecureStore.getItemAsync('last_sync_at');
+  const localCount = expoDb.getFirstSync<{ n: number }>(`SELECT COUNT(*) as n FROM cases WHERE deleted_at IS NULL`);
+  const lastSync = (!storedSync || (localCount?.n ?? 0) === 0)
+    ? '1970-01-01T00:00:00Z'
+    : storedSync;
   const pullResponse = await apiClient.get('/sync/pull/', { params: { last_sync: lastSync }, timeout: 20000 });
   const { cases: serverCases, notes: serverNotes, alerts: serverAlerts, server_time } = pullResponse.data;
 
@@ -148,42 +152,83 @@ export async function runPull(): Promise<void> {
       [sc.created_at]
     ) : null;
 
-    if (pendingMatch) {
-      expoDb.runSync(
-        `UPDATE cases SET server_id = ?, sync_status = 'synced', updated_at = ? WHERE id = ?`,
-        [sc.id, sc.updated_at, pendingMatch.id]
-      );
-    } else if (!existing) {
-      expoDb.runSync(
-        `INSERT OR IGNORE INTO cases
-          (id, server_id, org_id, title, description, type, priority, status,
-           is_sensitive, location_lat, location_lng, ai_summary, ai_category,
-           ai_priority, ai_urgency_score, ai_suggested_action, sync_status,
-           created_by, created_at, updated_at, deleted_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'synced',?,?,?,?)`,
-        [
-          randomUUID(), sc.id, sc.org_id ?? null, sc.title, sc.description,
-          sc.type, sc.priority, sc.status ?? 'open', sc.is_sensitive ? 1 : 0,
-          sc.location_lat ?? null, sc.location_lng ?? null,
-          sc.ai_summary ?? null, sc.ai_category ?? null, sc.ai_priority ?? null,
-          sc.ai_urgency_score ?? null, sc.ai_suggested_action ?? null,
-          sc.created_by ?? null, sc.created_at, sc.updated_at, sc.deleted_at ?? null,
-        ]
-      );
-    } else {
-      expoDb.runSync(
-        `UPDATE cases SET title=?, description=?, type=?, priority=?, status=?,
-           ai_summary=?, ai_category=?, ai_priority=?, ai_urgency_score=?,
-           ai_suggested_action=?, updated_at=?, deleted_at=?, sync_status='synced'
-         WHERE server_id=?`,
-        [
-          sc.title, sc.description, sc.type, sc.priority, sc.status ?? 'open',
-          sc.ai_summary ?? null, sc.ai_category ?? null, sc.ai_priority ?? null,
-          sc.ai_urgency_score ?? null, sc.ai_suggested_action ?? null,
-          sc.updated_at, sc.deleted_at ?? null, sc.id,
-        ]
-      );
-    }
+    try {
+      if (pendingMatch) {
+        expoDb.runSync(
+          `UPDATE cases SET server_id = ?, sync_status = 'synced', updated_at = ?,
+            created_by_name = ?, created_by_email = ? WHERE id = ?`,
+          [sc.id, sc.updated_at, sc.created_by_name ?? null, sc.created_by_email ?? null, pendingMatch.id]
+        );
+      } else if (!existing) {
+        // Try with new columns first, fall back to without them if columns don't exist yet
+        try {
+          expoDb.runSync(
+            `INSERT OR IGNORE INTO cases
+              (id, server_id, org_id, title, description, type, priority, status,
+               is_sensitive, location_lat, location_lng, ai_summary, ai_category,
+               ai_priority, ai_urgency_score, ai_suggested_action, sync_status,
+               created_by, created_by_name, created_by_email, created_at, updated_at, deleted_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'synced',?,?,?,?,?,?)`,
+            [
+              randomUUID(), sc.id, sc.org_id ?? null, sc.title, sc.description,
+              sc.type, sc.priority, sc.status ?? 'open', sc.is_sensitive ? 1 : 0,
+              sc.location_lat ?? null, sc.location_lng ?? null,
+              sc.ai_summary ?? null, sc.ai_category ?? null, sc.ai_priority ?? null,
+              sc.ai_urgency_score ?? null, sc.ai_suggested_action ?? null,
+              sc.created_by ?? null, sc.created_by_name ?? null, sc.created_by_email ?? null,
+              sc.created_at, sc.updated_at, sc.deleted_at ?? null,
+            ]
+          );
+        } catch {
+          expoDb.runSync(
+            `INSERT OR IGNORE INTO cases
+              (id, server_id, org_id, title, description, type, priority, status,
+               is_sensitive, location_lat, location_lng, ai_summary, ai_category,
+               ai_priority, ai_urgency_score, ai_suggested_action, sync_status,
+               created_by, created_at, updated_at, deleted_at)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'synced',?,?,?,?)`,
+            [
+              randomUUID(), sc.id, sc.org_id ?? null, sc.title, sc.description,
+              sc.type, sc.priority, sc.status ?? 'open', sc.is_sensitive ? 1 : 0,
+              sc.location_lat ?? null, sc.location_lng ?? null,
+              sc.ai_summary ?? null, sc.ai_category ?? null, sc.ai_priority ?? null,
+              sc.ai_urgency_score ?? null, sc.ai_suggested_action ?? null,
+              sc.created_by ?? null, sc.created_at, sc.updated_at, sc.deleted_at ?? null,
+            ]
+          );
+        }
+      } else {
+        try {
+          expoDb.runSync(
+            `UPDATE cases SET title=?, description=?, type=?, priority=?, status=?,
+               ai_summary=?, ai_category=?, ai_priority=?, ai_urgency_score=?,
+               ai_suggested_action=?, updated_at=?, deleted_at=?,
+               created_by_name=?, created_by_email=?, sync_status='synced'
+             WHERE server_id=?`,
+            [
+              sc.title, sc.description, sc.type, sc.priority, sc.status ?? 'open',
+              sc.ai_summary ?? null, sc.ai_category ?? null, sc.ai_priority ?? null,
+              sc.ai_urgency_score ?? null, sc.ai_suggested_action ?? null,
+              sc.updated_at, sc.deleted_at ?? null,
+              sc.created_by_name ?? null, sc.created_by_email ?? null, sc.id,
+            ]
+          );
+        } catch {
+          expoDb.runSync(
+            `UPDATE cases SET title=?, description=?, type=?, priority=?, status=?,
+               ai_summary=?, ai_category=?, ai_priority=?, ai_urgency_score=?,
+               ai_suggested_action=?, updated_at=?, deleted_at=?, sync_status='synced'
+             WHERE server_id=?`,
+            [
+              sc.title, sc.description, sc.type, sc.priority, sc.status ?? 'open',
+              sc.ai_summary ?? null, sc.ai_category ?? null, sc.ai_priority ?? null,
+              sc.ai_urgency_score ?? null, sc.ai_suggested_action ?? null,
+              sc.updated_at, sc.deleted_at ?? null, sc.id,
+            ]
+          );
+        }
+      }
+    } catch { /* skip this case, continue with next */ }
   }
 
   for (const sn of serverNotes ?? []) {

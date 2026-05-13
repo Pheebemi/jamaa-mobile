@@ -57,6 +57,12 @@ export default function DashboardScreen() {
         <Text className="text-base text-gray-500 mt-1.5 capitalize">
           {user?.role?.replace(/_/g, ' ')} · {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
         </Text>
+        {user?.org_name && (
+          <View className="flex-row items-center gap-1.5 mt-2">
+            <Ionicons name="business-outline" size={14} color="#15803d" />
+            <Text className="text-sm text-green-700 font-medium">{user.org_name}</Text>
+          </View>
+        )}
       </View>
 
       {/* Stat cards */}

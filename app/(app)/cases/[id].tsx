@@ -228,13 +228,35 @@ export default function CaseDetailScreen() {
             ))}
           </View>
 
-          <View className="mx-4 mt-3 bg-white rounded-2xl p-4">
-            <Text className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Details</Text>
-            <Text className="text-xs text-gray-500">Created: {new Date(caseData.created_at).toLocaleString('en-GB')}</Text>
-            <Text className="text-xs text-gray-500 mt-1">Updated: {new Date(caseData.updated_at).toLocaleString('en-GB')}</Text>
-            {caseData.server_id && (
-              <Text className="text-xs text-gray-400 mt-1">Server ID: {caseData.server_id}</Text>
-            )}
+          <View className="mx-4 mt-3 bg-white rounded-3xl p-5">
+            <Text className="text-sm font-semibold text-gray-400 uppercase tracking-widest mb-4">Details</Text>
+            <View className="flex-row items-center gap-3 mb-3">
+              <View className="w-9 h-9 rounded-full bg-green-100 items-center justify-center">
+                <Ionicons name="person-outline" size={16} color="#15803d" />
+              </View>
+              <View>
+                <Text className="text-sm font-semibold text-gray-800">
+                  {caseData.created_by_name ?? user?.name ?? 'Unknown'}
+                </Text>
+                <Text className="text-xs text-gray-400">
+                  {caseData.created_by_email ?? user?.email ?? ''}
+                </Text>
+              </View>
+            </View>
+            <View className="flex-row gap-6 pt-3 border-t border-gray-50">
+              <View>
+                <Text className="text-xs text-gray-400">Created</Text>
+                <Text className="text-sm font-medium text-gray-700 mt-0.5">
+                  {new Date(caseData.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </Text>
+              </View>
+              <View>
+                <Text className="text-xs text-gray-400">Updated</Text>
+                <Text className="text-sm font-medium text-gray-700 mt-0.5">
+                  {new Date(caseData.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </Text>
+              </View>
+            </View>
           </View>
         </>
       )}

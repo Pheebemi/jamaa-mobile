@@ -91,6 +91,12 @@ export default function ProfileScreen() {
             {ROLE_LABELS[user?.role ?? ''] ?? user?.role ?? 'Unknown Role'}
           </Text>
         </View>
+        {user?.org_name && (
+          <View className="flex-row items-center gap-1.5 mt-2">
+            <Ionicons name="business-outline" size={14} color="#6b7280" />
+            <Text className="text-sm text-gray-500">{user.org_name}</Text>
+          </View>
+        )}
       </View>
 
       {/* Sync stats */}

@@ -12,6 +12,7 @@ export interface AuthUser {
   email: string;
   role: 'super_admin' | 'org_admin' | 'field_officer' | 'school_staff' | 'clinic_staff';
   org_id: string;
+  org_name?: string;
 }
 
 interface AuthState {
