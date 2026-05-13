@@ -68,6 +68,61 @@ export default function CaseDetailScreen() {
     }
   }
 
+  function handleStatusChange() {
+    const isAdmin = user?.role === 'super_admin' || user?.role === 'org_admin';
+
+    const allStatuses = ['open', 'in_progress', 'resolved', 'closed'];
+    const fieldStatuses = ['open', 'in_progress', 'resolved'];
+    const allowedStatuses = isAdmin ? allStatuses : fieldStatuses;
+
+    const labels: Record<string, string> = {
+      open: 'Open',
+      in_progress: 'In Progress',
+      resolved: 'Resolved',
+      closed: 'Closed',
+    };
+
+    Alert.alert(
+      'Update Status',
+      'Select the new status for this case:',
+      [
+        ...allowedStatuses
+          .filter(s => s !== caseData.status)
+          .map(s => ({
+            text: labels[s],
+            onPress: () => {
+              expoDb.runSync(
+                `DELETE FROM cases WHERE id = ?`, [id]
+              );
+              expoDb.runSync(
+                `INSERT INTO cases
+                  (id, server_id, org_id, title, description, type, priority, status,
+                   is_sensitive, location_lat, location_lng, ai_summary, ai_category,
+                   ai_priority, ai_urgency_score, ai_suggested_action,
+                   sync_status, created_by, created_at, updated_at, deleted_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                [
+                  caseData.id, caseData.server_id ?? null, caseData.org_id,
+                  caseData.title, caseData.description, caseData.type,
+                  caseData.priority, s,
+                  caseData.is_sensitive ? 1 : 0,
+                  caseData.location_lat ?? null, caseData.location_lng ?? null,
+                  caseData.ai_summary ?? null, caseData.ai_category ?? null,
+                  caseData.ai_priority ?? null, caseData.ai_urgency_score ?? null,
+                  caseData.ai_suggested_action ?? null,
+                  'pending', caseData.created_by,
+                  caseData.created_at, new Date().toISOString(), caseData.deleted_at ?? null,
+                ]
+              );
+              loadCase();
+              Toast.show({ type: 'success', text1: `Status updated to ${labels[s]}` });
+            },
+          })),
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  }
+
   function handleDelete() {
     const isSynced = caseData?.sync_status === 'synced';
     Alert.alert(
@@ -132,13 +187,18 @@ export default function CaseDetailScreen() {
         </View>
 
         <View className="flex-row items-center gap-4 mt-3">
-          <View className="flex-row items-center gap-1.5">
+          <TouchableOpacity
+            onPress={handleStatusChange}
+            className="flex-row items-center gap-1.5 bg-gray-100 px-3 py-1.5 rounded-full"
+          >
             <View className={`w-2 h-2 rounded-full ${
               caseData.status === 'open' ? 'bg-green-500' :
-              caseData.status === 'in_progress' ? 'bg-blue-500' : 'bg-gray-400'
+              caseData.status === 'in_progress' ? 'bg-blue-500' :
+              caseData.status === 'resolved' ? 'bg-purple-500' : 'bg-gray-400'
             }`} />
-            <Text className="text-sm text-gray-600">{STATUS_LABELS[caseData.status] ?? caseData.status}</Text>
-          </View>
+            <Text className="text-sm font-medium text-gray-700">{STATUS_LABELS[caseData.status] ?? caseData.status}</Text>
+            <Ionicons name="chevron-down" size={12} color="#6b7280" />
+          </TouchableOpacity>
           <Text className="text-gray-300">·</Text>
           <Text className="text-sm text-gray-500 capitalize">{caseData.type?.replace('_', ' ')}</Text>
         </View>

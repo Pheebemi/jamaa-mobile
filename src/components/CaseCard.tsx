@@ -56,13 +56,30 @@ export function CaseCard({ case: c }: Props) {
 
       {/* Bottom row */}
       <View className="flex-row items-center justify-between mt-4">
-        <View className="flex-row items-center gap-3">
-          <View className="flex-row items-center gap-1.5">
-            <View className={`w-2.5 h-2.5 rounded-full ${SYNC_DOT[c.sync_status] ?? 'bg-gray-300'}`} />
-            <Text className="text-sm text-gray-400 capitalize">{c.sync_status}</Text>
+        <View className="flex-row items-center gap-2">
+          {/* Status badge */}
+          <View className={`flex-row items-center gap-1.5 px-2.5 py-1 rounded-full ${
+            c.status === 'open'        ? 'bg-green-50' :
+            c.status === 'in_progress' ? 'bg-blue-50' :
+            c.status === 'resolved'    ? 'bg-purple-50' : 'bg-gray-100'
+          }`}>
+            <View className={`w-1.5 h-1.5 rounded-full ${
+              c.status === 'open'        ? 'bg-green-500' :
+              c.status === 'in_progress' ? 'bg-blue-500' :
+              c.status === 'resolved'    ? 'bg-purple-500' : 'bg-gray-400'
+            }`} />
+            <Text className={`text-xs font-medium ${
+              c.status === 'open'        ? 'text-green-700' :
+              c.status === 'in_progress' ? 'text-blue-700' :
+              c.status === 'resolved'    ? 'text-purple-700' : 'text-gray-500'
+            }`}>
+              {c.status === 'in_progress' ? 'In Progress' :
+               c.status === 'open' ? 'Open' :
+               c.status === 'resolved' ? 'Resolved' : 'Closed'}
+            </Text>
           </View>
-          <Text className="text-gray-200">·</Text>
-          <Text className="text-sm text-gray-400">{TYPE_LABELS[c.type] ?? c.type}</Text>
+          {/* Sync dot */}
+          <View className={`w-2 h-2 rounded-full ${SYNC_DOT[c.sync_status] ?? 'bg-gray-300'}`} />
         </View>
         <Text className="text-sm text-gray-400">
           {new Date(c.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
