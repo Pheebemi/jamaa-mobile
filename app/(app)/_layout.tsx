@@ -3,11 +3,17 @@ import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SyncButton } from '../../src/components/SyncButton';
 import { OfflineBanner } from '../../src/components/OfflineBanner';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+function HeaderBanner() {
+  return <OfflineBanner />;
+}
 
 export default function AppLayout() {
+  const insets = useSafeAreaInsets();
+
   return (
     <View className="flex-1">
-      <OfflineBanner />
       <Tabs
         screenOptions={{
           tabBarActiveTintColor: '#15803d',
@@ -21,6 +27,7 @@ export default function AppLayout() {
           headerTitleStyle: { color: '#111827', fontWeight: '700' },
           headerRight: () => <SyncButton />,
           headerRightContainerStyle: { paddingRight: 16 },
+          headerBottom: () => <HeaderBanner />,
         }}
       >
         <Tabs.Screen
