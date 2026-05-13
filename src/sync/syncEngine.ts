@@ -78,34 +78,52 @@ export async function runSync(
       if (item.local_id && item.server_id) serverIdMap[item.local_id] = item.server_id;
     }
 
+    // DELETE + INSERT instead of UPDATE — bypasses expo-sqlite UPDATE persistence bug
     for (const c of pendingCases) {
-      const serverId = serverIdMap[c.id] ?? c.server_id ?? '';
-
-      const before = expoDb.getFirstSync<any>(
-        `SELECT id, typeof(id) as id_type, sync_status FROM cases WHERE id = ?`, [c.id]
-      );
-      const journalMode = expoDb.getFirstSync<any>(`PRAGMA journal_mode`);
-
-      const sid = serverId ? `'${serverId}'` : 'NULL';
-      const updateResult = expoDb.runSync(
-        `UPDATE cases SET sync_status = 'synced', server_id = ${sid} WHERE id = ?`, [c.id]
-      );
-
-      const after = expoDb.getFirstSync<any>(
-        `SELECT sync_status FROM cases WHERE id = ?`, [c.id]
-      );
-
-      result.errors.push(
-        `pushed OK | journal=${journalMode?.journal_mode} | before=${before?.sync_status} | after=${after?.sync_status} | changes=${updateResult?.changes ?? 'N/A'}`
+      const serverId = serverIdMap[c.id] ?? c.server_id ?? null;
+      expoDb.execSync(`DELETE FROM cases WHERE id = '${c.id}'`);
+      expoDb.runSync(
+        `INSERT INTO cases
+          (id, server_id, org_id, title, description, type, priority, status,
+           is_sensitive, location_lat, location_lng, ai_summary, ai_category,
+           ai_priority, ai_urgency_score, ai_suggested_action,
+           sync_status, created_by, created_at, updated_at, deleted_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'synced',?,?,?,?)`,
+        [
+          c.id, serverId, c.org_id, c.title, c.description,
+          c.type, c.priority, c.status ?? 'open', c.is_sensitive ? 1 : 0,
+          c.location_lat ?? null, c.location_lng ?? null,
+          c.ai_summary ?? null, c.ai_category ?? null, c.ai_priority ?? null,
+          c.ai_urgency_score ?? null, c.ai_suggested_action ?? null,
+          c.created_by, c.created_at, c.updated_at, c.deleted_at ?? null,
+        ]
       );
     }
+
     for (const n of pendingNotes) {
-      const serverId = serverIdMap[n.id] ?? n.server_id ?? '';
-      const sid = serverId ? `'${serverId}'` : 'NULL';
-      expoDb.execSync(`UPDATE case_notes SET sync_status = 'synced', server_id = ${sid} WHERE id = '${n.id}'`);
+      const serverId = serverIdMap[n.id] ?? n.server_id ?? null;
+      expoDb.execSync(`DELETE FROM case_notes WHERE id = '${n.id}'`);
+      expoDb.runSync(
+        `INSERT INTO case_notes (id, server_id, case_id, author_id, body, sync_status, created_at, updated_at)
+         VALUES (?,?,?,?,?,'synced',?,?)`,
+        [n.id, serverId, n.case_id, n.author_id, n.body, n.created_at, n.updated_at]
+      );
     }
+
     for (const conflict of conflicts ?? []) {
-      expoDb.execSync(`UPDATE cases SET sync_status = 'conflict' WHERE id = '${conflict.local_id}'`);
+      expoDb.execSync(`DELETE FROM cases WHERE id = '${conflict.local_id}'`);
+      const orig = pendingCases.find((c: any) => c.id === conflict.local_id);
+      if (orig) {
+        expoDb.runSync(
+          `INSERT INTO cases
+            (id, server_id, org_id, title, description, type, priority, status,
+             is_sensitive, sync_status, created_by, created_at, updated_at)
+           VALUES (?,?,?,?,?,?,?,?,'conflict',?,?,?,?)`,
+          [orig.id, orig.server_id ?? null, orig.org_id, orig.title, orig.description,
+           orig.type, orig.priority, orig.status ?? 'open', orig.is_sensitive ? 1 : 0,
+           orig.created_by, orig.created_at, orig.updated_at]
+        );
+      }
     }
 
     result.pushed = (created?.length ?? 0) + (updated?.length ?? 0);

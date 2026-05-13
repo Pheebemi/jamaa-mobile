@@ -17,13 +17,11 @@ export function useSync() {
       return;
     }
 
-    // Read pending cases HERE — same context as the badge count
     const pendingCases = expoDb.getAllSync<any>(`SELECT * FROM cases WHERE sync_status = 'pending'`);
     const pendingNotes = expoDb.getAllSync<any>(`SELECT * FROM case_notes WHERE sync_status = 'pending'`);
 
     if (pendingCases.length === 0 && pendingNotes.length === 0) {
-      Toast.show({ type: 'info', text1: 'Nothing to upload', text2: 'No pending cases.' });
-      setPendingCount(0);
+      Toast.show({ type: 'info', text1: 'All caught up', text2: 'No new cases to upload.' });
       return;
     }
 
@@ -31,24 +29,38 @@ export function useSync() {
     try {
       const result = await runSync(pendingCases, pendingNotes);
       setLastResult(result);
-
       const remaining = await getPendingCount();
       setPendingCount(remaining);
 
-      const realErrors = result.errors.filter(e => !e.startsWith('DEBUG'));
-      if (realErrors.length > 0) {
-        Toast.show({ type: 'error', text1: 'Upload error', text2: realErrors[0] });
-      } else if (result.pushed === 0) {
-        Toast.show({ type: 'info', text1: 'Check server', text2: result.errors.join(' | ') });
+      const hasRealError = result.errors.some(e => !e.startsWith('DEBUG') && !e.startsWith('Push timeout'));
+
+      if (hasRealError) {
+        Toast.show({
+          type: 'error',
+          text1: 'Upload failed',
+          text2: 'Please check your connection and try again.',
+        });
       } else {
         Toast.show({
           type: 'success',
-          text1: `↑ Uploaded ${result.pushed} case${result.pushed !== 1 ? 's' : ''}`,
-          text2: 'Saved to server successfully.',
+          text1: `↑ ${result.pushed} case${result.pushed !== 1 ? 's' : ''} uploaded`,
+          text2: 'Refreshing your cases in a moment…',
         });
+
+        // Pull silently after 5 seconds — no spinner, no toast
+        setTimeout(async () => {
+          try {
+            await runPull();
+            setLastSyncAt(new Date().toISOString());
+          } catch {}
+        }, 5000);
       }
     } catch (err: any) {
-      Toast.show({ type: 'error', text1: 'Upload failed', text2: err.message });
+      Toast.show({
+        type: 'error',
+        text1: 'Upload failed',
+        text2: 'Please check your connection and try again.',
+      });
     } finally {
       setSyncing(false);
     }
@@ -64,9 +76,9 @@ export function useSync() {
     try {
       await runPull();
       setLastSyncAt(new Date().toISOString());
-      Toast.show({ type: 'success', text1: '↓ Download complete', text2: 'Latest data pulled from server.' });
-    } catch (err: any) {
-      Toast.show({ type: 'error', text1: 'Download failed', text2: err.message });
+      Toast.show({ type: 'success', text1: '↓ Cases refreshed', text2: 'You have the latest data.' });
+    } catch {
+      Toast.show({ type: 'error', text1: 'Refresh failed', text2: 'Please try again.' });
     } finally {
       setIsPulling(false);
     }
