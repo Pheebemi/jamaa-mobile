@@ -7,7 +7,7 @@
 
 ## What is Jamaa?
 
-**Jamaa** (Swahili for *family/community*) is an open-source mobile application that enables humanitarian field workers to document, track, and respond to community cases — even without internet access.
+**Jamaa** — meaning *people* or *community* in Hausa — is an open-source mobile application that enables humanitarian field workers to document, track, and respond to community cases — even without internet access.
 
 Millions of vulnerable children fall through the cracks of fragile support systems not because help doesn't exist, but because the information infrastructure to find them, track them, and respond fast enough simply isn't there. Paper records get lost. Emergency alerts arrive too late. Clinics lose patient histories when the internet goes down.
 
